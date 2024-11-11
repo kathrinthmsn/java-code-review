@@ -4,12 +4,15 @@ import java.math.BigDecimal;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import static javax.persistence.GenerationType.AUTO;
 
 @Entity
 @Data
@@ -19,6 +22,7 @@ import lombok.NoArgsConstructor;
 public class Coupon {
 
     @Id
+    @GeneratedValue(strategy = AUTO)
     private Long id;
 
     @Column(name = "code")

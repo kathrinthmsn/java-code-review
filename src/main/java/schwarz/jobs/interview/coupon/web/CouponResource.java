@@ -2,7 +2,7 @@ package schwarz.jobs.interview.coupon.web;
 
 
 import java.util.List;
-import java.util.Optional;
+import java.util.NoSuchElementException;
 
 import javax.validation.Valid;
 
@@ -18,58 +18,52 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import schwarz.jobs.interview.coupon.core.domain.Coupon;
 import schwarz.jobs.interview.coupon.core.services.CouponService;
-import schwarz.jobs.interview.coupon.core.services.model.Basket;
-import schwarz.jobs.interview.coupon.web.dto.ApplicationRequestDTO;
+import schwarz.jobs.interview.coupon.core.domain.Basket;
+import schwarz.jobs.interview.coupon.web.dto.CouponApplicationRequestDTO;
 import schwarz.jobs.interview.coupon.web.dto.CouponDTO;
 import schwarz.jobs.interview.coupon.web.dto.CouponRequestDTO;
 
 @Controller
 @RequiredArgsConstructor
-@RequestMapping("/api")
+@RequestMapping("/api/coupons")
 @Slf4j
 public class CouponResource {
 
     private final CouponService couponService;
 
-    /**
-     * @param applicationRequestDTO
-     * @return
-     */
+
     //@ApiOperation(value = "Applies currently active promotions and coupons from the request to the requested Basket - Version 1")
     @PostMapping(value = "/apply")
     public ResponseEntity<Basket> apply(
-        //@ApiParam(value = "Provides the necessary basket and customer information required for the coupon application", required = true)
-        @RequestBody @Valid final ApplicationRequestDTO applicationRequestDTO) {
+            //@ApiParam(value = "Provides the necessary basket and customer information required for the coupon application", required = true)
+            @RequestBody @Valid final CouponApplicationRequestDTO applicationRequestDTO) {
 
-        log.info("Applying coupon");
+        log.info("Applying coupon with code: {}", applicationRequestDTO.getCode());
 
-        final Optional<Basket> basket =
-            couponService.apply(applicationRequestDTO.getBasket(), applicationRequestDTO.getCode());
-
-        if (basket.isEmpty()) {
-            return ResponseEntity.notFound().build();
+        try {
+            Basket basket = couponService.apply(applicationRequestDTO.getBasket(), applicationRequestDTO.getCode());
+            log.info("Successfully applied coupon with code: {}", applicationRequestDTO.getCode());
+            return ResponseEntity.ok(basket);
+        } catch (NoSuchElementException e) {
+            log.warn("Coupon not found: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid argument: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(null);
+        } catch (Exception e) {
+            log.error("Unexpected error while applying coupon: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-
-        if (!applicationRequestDTO.getBasket().isApplicationSuccessful()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        }
-
-        log.info("Applied coupon");
-
-        return ResponseEntity.ok().body(applicationRequestDTO.getBasket());
     }
 
-    @PostMapping("/create")
+    @PostMapping
     public ResponseEntity<Void> create(@RequestBody @Valid final CouponDTO couponDTO) {
-
-        final Coupon coupon = couponService.createCoupon(couponDTO);
-
+        couponService.createCoupon(couponDTO);
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/coupons")
-    public List<Coupon> getCoupons(@RequestBody @Valid final CouponRequestDTO couponRequestDTO) {
-
-        return couponService.getCoupons(couponRequestDTO);
+    @GetMapping
+    public List<Coupon> getCoupons(@Valid final CouponRequestDTO couponRequestDTO) {
+        return couponService.getCoupons(couponRequestDTO.getCodes());
     }
 }

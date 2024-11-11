@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -20,9 +21,8 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import schwarz.jobs.interview.coupon.core.domain.Coupon;
 import schwarz.jobs.interview.coupon.core.repository.CouponRepository;
-import schwarz.jobs.interview.coupon.core.services.model.Basket;
+import schwarz.jobs.interview.coupon.core.domain.Basket;
 import schwarz.jobs.interview.coupon.web.dto.CouponDTO;
-import schwarz.jobs.interview.coupon.web.dto.CouponRequestDTO;
 
 @ExtendWith(SpringExtension.class)
 public class CouponServiceTest {
@@ -34,12 +34,91 @@ public class CouponServiceTest {
     private CouponRepository couponRepository;
 
     @Test
-    public void createCoupon() {
+    public void applyCouponSuccessfullyValueBiggerThanDiscount() {
+        //Given
+        final Basket basket = Basket.builder()
+                .value(BigDecimal.valueOf(100))
+                .build();
+        when(couponRepository.findByCode("1111")).thenReturn(Optional.of(Coupon.builder()
+                .code("1111")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(50))
+                .build()));
+        //When
+        Basket updatedBasket = couponService.apply(basket, "1111");
+        //Then
+        assertThat(updatedBasket.getAppliedDiscount()).isEqualTo(BigDecimal.TEN);
+        assertThat(updatedBasket.getValue()).isEqualTo(BigDecimal.valueOf(90));
+    }
+
+    @Test
+    public void applyCouponSuccessfullyDiscountBiggerThanValue() {
+        //Given
+        final Basket basket = Basket.builder()
+                .value(BigDecimal.valueOf(5))
+                .build();
+        when(couponRepository.findByCode("1111")).thenReturn(Optional.of(Coupon.builder()
+                .code("1111")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(1))
+                .build()));
+        //When
+        Basket updatedBasket = couponService.apply(basket, "1111");
+        //Then
+        assertThat(updatedBasket.getAppliedDiscount()).isEqualTo(BigDecimal.valueOf(5));
+        assertThat(updatedBasket.getValue()).isEqualTo(BigDecimal.valueOf(0));
+    }
+
+    @Test
+    public void shouldThrowExceptionWhenBasketValueIsLessThanMinBasketValue() {
+        Basket basket = Basket.builder()
+                .value(BigDecimal.valueOf(10))
+                .build();
+        when(couponRepository.findByCode("1111")).thenReturn(Optional.of(Coupon.builder()
+                .code("1111")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(50))
+                .build()));
+
+        assertThatThrownBy(() -> couponService.apply(basket, "1111"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Basket value does not meet the minimum required value for this coupon");
+    }
+
+    @Test
+    public void shouldThrowExceptionWhenBasketValueIsNegative() {
+        Basket basket = Basket.builder()
+                .value(BigDecimal.valueOf(-1))
+                .build();
+        when(couponRepository.findByCode("1111")).thenReturn(Optional.of(Coupon.builder()
+                .code("1111")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(50))
+                .build()));
+
+        assertThatThrownBy(() -> couponService.apply(basket, "1111"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Basket value cannot be negative");
+    }
+
+    @Test
+    public void shouldThrowExceptionWhenCouponNotFound() {
+        Basket basket = Basket.builder()
+                .value(BigDecimal.valueOf(100))
+                .build();
+
+        assertThatThrownBy(() -> couponService.apply(basket, "nonexistent"))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessage("Coupon not found: nonexistent");
+    }
+
+    @Test
+    public void createCouponSuccessfully() {
         CouponDTO dto = CouponDTO.builder()
-            .code("12345")
-            .discount(BigDecimal.TEN)
-            .minBasketValue(BigDecimal.valueOf(50))
-            .build();
+                .code("12345")
+                .discount(BigDecimal.TEN)
+                .minBasketValue(BigDecimal.valueOf(50))
+                .build();
 
         couponService.createCoupon(dto);
 
@@ -47,69 +126,35 @@ public class CouponServiceTest {
     }
 
     @Test
-    public void test_apply_coupon_method() {
-
-        final Basket firstBasket = Basket.builder()
-            .value(BigDecimal.valueOf(100))
-            .build();
-
-        when(couponRepository.findByCode("1111")).thenReturn(Optional.of(Coupon.builder()
-            .code("1111")
-            .discount(BigDecimal.TEN)
-            .minBasketValue(BigDecimal.valueOf(50))
-            .build()));
-
-        Optional<Basket> optionalBasket = couponService.apply(firstBasket, "1111");
-
-        assertThat(optionalBasket).hasValueSatisfying(b -> {
-            assertThat(b.getAppliedDiscount()).isEqualTo(BigDecimal.TEN);
-            assertThat(b.isApplicationSuccessful()).isTrue();
-        });
-
-        final Basket secondBasket = Basket.builder()
-            .value(BigDecimal.valueOf(0))
-            .build();
-
-        optionalBasket = couponService.apply(secondBasket, "1111");
-
-        assertThat(optionalBasket).hasValueSatisfying(b -> {
-            assertThat(b).isEqualTo(secondBasket);
-            assertThat(b.isApplicationSuccessful()).isFalse();
-        });
-
-        final Basket thirdBasket = Basket.builder()
-            .value(BigDecimal.valueOf(-1))
-            .build();
-
-        assertThatThrownBy(() -> {
-            couponService.apply(thirdBasket, "1111");
-        }).isInstanceOf(RuntimeException.class)
-            .hasMessage("Can't apply negative discounts");
-    }
-
-    @Test
-    public void should_test_get_Coupons() {
-
-        CouponRequestDTO dto = CouponRequestDTO.builder()
-            .codes(Arrays.asList("1111", "1234"))
-            .build();
-
-        when(couponRepository.findByCode(any()))
-            .thenReturn(Optional.of(Coupon.builder()
+    public void shouldReturnCouponsForValidCodes() {
+        List<String> codes = Arrays.asList("1111", "1234");
+        Coupon coupon1 = Coupon.builder()
                 .code("1111")
                 .discount(BigDecimal.TEN)
                 .minBasketValue(BigDecimal.valueOf(50))
-                .build()))
-            .thenReturn(Optional.of(Coupon.builder()
+                .build();
+        Coupon coupon2 = Coupon.builder()
                 .code("1234")
                 .discount(BigDecimal.TEN)
                 .minBasketValue(BigDecimal.valueOf(50))
-                .build()));
+                .build();
 
-        List<Coupon> returnedCoupons = couponService.getCoupons(dto);
+        when(couponRepository.findByCodeIn(codes)).thenReturn(List.of(coupon1, coupon2));
 
+        List<Coupon> returnedCoupons = couponService.getCoupons(codes);
+
+        assertThat(returnedCoupons).hasSize(2);
         assertThat(returnedCoupons.get(0).getCode()).isEqualTo("1111");
-
         assertThat(returnedCoupons.get(1).getCode()).isEqualTo("1234");
+    }
+
+    @Test
+    public void shouldReturnEmptyListWhenNoCouponsFound() {
+        List<String> codes = Arrays.asList("1111", "1234");
+        when(couponRepository.findByCodeIn(codes)).thenReturn(List.of());
+
+        List<Coupon> returnedCoupons = couponService.getCoupons(codes);
+
+        assertThat(returnedCoupons).isEmpty();
     }
 }
